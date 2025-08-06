@@ -1,191 +1,136 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": 5,
-   "id": "57bf90b8-face-4888-82b0-729331720a62",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "C:\\Users\\augus\\AppData\\Local\\Temp\\ipykernel_8388\\2070950972.py:9: DtypeWarning: Columns (179,180,182,183,189,190,197,198,203,204,205,206,213,214,218,219,220,222,224,226,233,234,235,236,237,238,248,249,253,254,255,260,262,263,283,284) have mixed types. Specify dtype option on import or set low_memory=False.\n",
-      "  nfl = pd.read_csv('play_by_play_2024.csv')\n",
-      "C:\\Users\\augus\\anaconda3\\Lib\\site-packages\\joblib\\externals\\loky\\backend\\context.py:136: UserWarning: Could not find the number of physical cores for the following reason:\n",
-      "[WinError 2] The system cannot find the file specified\n",
-      "Returning the number of logical cores instead. You can silence this warning by setting LOKY_MAX_CPU_COUNT to the number of cores you want to use.\n",
-      "  warnings.warn(\n",
-      "  File \"C:\\Users\\augus\\anaconda3\\Lib\\site-packages\\joblib\\externals\\loky\\backend\\context.py\", line 257, in _count_physical_cores\n",
-      "    cpu_info = subprocess.run(\n",
-      "               ^^^^^^^^^^^^^^^\n",
-      "  File \"C:\\Users\\augus\\anaconda3\\Lib\\subprocess.py\", line 548, in run\n",
-      "    with Popen(*popenargs, **kwargs) as process:\n",
-      "         ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
-      "  File \"C:\\Users\\augus\\anaconda3\\Lib\\subprocess.py\", line 1026, in __init__\n",
-      "    self._execute_child(args, executable, preexec_fn, close_fds,\n",
-      "  File \"C:\\Users\\augus\\anaconda3\\Lib\\subprocess.py\", line 1538, in _execute_child\n",
-      "    hp, ht, pid, tid = _winapi.CreateProcess(executable, args,\n",
-      "                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n",
-      "C:\\Users\\augus\\anaconda3\\Lib\\site-packages\\sklearn\\cluster\\_kmeans.py:1429: UserWarning: KMeans is known to have a memory leak on Windows with MKL, when there are less chunks than available threads. You can avoid it by setting the environment variable OMP_NUM_THREADS=1.\n",
-      "  warnings.warn(\n"
-     ]
-    }
-   ],
-   "source": [
-    "import streamlit as st\n",
-    "import pandas as pd\n",
-    "import matplotlib.pyplot as plt\n",
-    "import seaborn as sns\n",
-    "from sklearn.preprocessing import StandardScaler\n",
-    "from sklearn.cluster import KMeans\n",
-    "from sklearn.decomposition import PCA\n",
-    "\n",
-    "nfl = pd.read_csv('play_by_play_2024.csv')\n",
-    "\n",
-    "receiving_plays = nfl[\n",
-    "    (nfl['play_type'] == 'pass') &\n",
-    "    (nfl['receiver_player_name'].notna() &\n",
-    "    (nfl['season_type'] == 'REG'))\n",
-    "]\n",
-    "\n",
-    "# Aggregate receiver stats\n",
-    "receiver_stats = receiving_plays.groupby(['receiver_player_name']).agg({\n",
-    "    'complete_pass': 'sum',\n",
-    "    'pass_attempt': 'sum',\n",
-    "    'passing_yards': 'sum',\n",
-    "    'yards_after_catch': 'sum',\n",
-    "    'air_yards': 'sum',\n",
-    "    'touchdown': 'sum',\n",
-    "    'epa': 'sum'\n",
-    "}).reset_index()\n",
-    "\n",
-    "# Rename and calculate key metrics\n",
-    "receiver_stats.rename(columns={\n",
-    "    'receiver_player_name': 'Receiver',\n",
-    "    'complete_pass': 'Receptions',\n",
-    "    'pass_attempt': 'Targets',\n",
-    "    'passing_yards': 'Receiving_Yards',\n",
-    "    'yards_after_catch': 'YAC',\n",
-    "    'air_yards': 'Air_Yards',\n",
-    "    'touchdown': 'TDs',\n",
-    "    'epa': 'Total_EPA'\n",
-    "}, inplace=True)\n",
-    "\n",
-    "receiver_stats['Catch_Rate'] = receiver_stats['Receptions'] / receiver_stats['Targets']\n",
-    "receiver_stats['Yards_per_Target'] = receiver_stats['Receiving_Yards'] / receiver_stats['Targets']\n",
-    "receiver_stats['YAC_per_Catch'] = receiver_stats['YAC'] / receiver_stats['Receptions']\n",
-    "receiver_stats['EPA_per_Target'] = receiver_stats['Total_EPA'] / receiver_stats['Targets']\n",
-    "\n",
-    "# Filter for players with at least 50 targets\n",
-    "receiver_stats = receiver_stats[receiver_stats['Targets'] >= 50]\n",
-    "\n",
-    "st.set_page_config(page_title=\"NFL WR Clustering Dashboard\", layout=\"wide\")\n",
-    "st.title(\"📊 2024 NFL Wide Receiver Archetype Clusters\")\n",
-    "\n",
-    "# Load WR stats from existing variable or file\n",
-    "if \"receiver_stats\" in st.session_state:\n",
-    "    df = st.session_state[\"receiver_stats\"]\n",
-    "else:\n",
-    "    uploaded_file = st.file_uploader(\"play_by_play_2024.csv\", type=[\"csv\"])\n",
-    "    if uploaded_file is not None:\n",
-    "        df = pd.read_csv(uploaded_file)\n",
-    "        st.session_state[\"receiver_stats\"] = df\n",
-    "    else:\n",
-    "        st.info(\"receiver_stats\")\n",
-    "        st.stop()\n",
-    "\n",
-    "# Features for clustering\n",
-    "features = [\n",
-    "    \"Targets\", \n",
-    "    \"Receptions\", \n",
-    "    \"Receiving_Yards\", \n",
-    "    \"TDs\", \n",
-    "    \"EPA_per_Target\", \n",
-    "    \"Air_Yards\", \n",
-    "    \"YAC_per_Catch\"\n",
-    "]\n",
-    "\n",
-    "# Drop NA rows\n",
-    "df_clean = receiver_stats.dropna(subset=features + [\"Receiver\"])\n",
-    "X = df_clean[features]\n",
-    "\n",
-    "# Scale features\n",
-    "scaler = StandardScaler()\n",
-    "X_scaled = scaler.fit_transform(X)\n",
-    "\n",
-    "# Sidebar options\n",
-    "n_clusters = st.sidebar.slider(\"Select number of clusters\", min_value=2, max_value=6, value=4)\n",
-    "\n",
-    "# KMeans\n",
-    "kmeans = KMeans(n_clusters=n_clusters, random_state=42)\n",
-    "df_clean[\"Cluster\"] = kmeans.fit_predict(X_scaled)\n",
-    "\n",
-    "# PCA\n",
-    "pca = PCA(n_components=2)\n",
-    "coords = pca.fit_transform(X_scaled)\n",
-    "df_clean[\"PCA1\"] = coords[:, 0]\n",
-    "df_clean[\"PCA2\"] = coords[:, 1]\n",
-    "\n",
-    "# Color palette\n",
-    "palette = sns.color_palette(\"Set2\", n_colors=n_clusters)\n",
-    "\n",
-    "# Plot\n",
-    "fig, ax = plt.subplots(figsize=(12, 8))\n",
-    "sns.scatterplot(\n",
-    "    data=df_clean,\n",
-    "    x=\"PCA1\",\n",
-    "    y=\"PCA2\",\n",
-    "    hue=\"Cluster\",\n",
-    "    palette=palette,\n",
-    "    s=100,\n",
-    "    ax=ax,\n",
-    "    legend=\"full\"\n",
-    ")\n",
-    "\n",
-    "for _, row in df_clean.iterrows():\n",
-    "    ax.text(row[\"PCA1\"], row[\"PCA2\"], row[\"Receiver\"], fontsize=8, alpha=0.75)\n",
-    "\n",
-    "ax.set_title(\"WR Clusters based on Role & Efficiency\")\n",
-    "ax.set_xlabel(\"PCA 1\")\n",
-    "ax.set_ylabel(\"PCA 2\")\n",
-    "ax.grid(True)\n",
-    "\n",
-    "st.pyplot(fig)\n",
-    "\n",
-    "# Show data\n",
-    "with st.expander(\"🔍 View clustered data\"):\n",
-    "    st.dataframe(df_clean.sort_values(\"Cluster\"))\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "543b63bb-a100-45a0-b79a-75208cf9a882",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.12.7"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[5]:
+
+
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+
+nfl = pd.read_csv('play_by_play_2024.csv')
+
+receiving_plays = nfl[
+    (nfl['play_type'] == 'pass') &
+    (nfl['receiver_player_name'].notna() &
+    (nfl['season_type'] == 'REG'))
+]
+
+# Aggregate receiver stats
+receiver_stats = receiving_plays.groupby(['receiver_player_name']).agg({
+    'complete_pass': 'sum',
+    'pass_attempt': 'sum',
+    'passing_yards': 'sum',
+    'yards_after_catch': 'sum',
+    'air_yards': 'sum',
+    'touchdown': 'sum',
+    'epa': 'sum'
+}).reset_index()
+
+# Rename and calculate key metrics
+receiver_stats.rename(columns={
+    'receiver_player_name': 'Receiver',
+    'complete_pass': 'Receptions',
+    'pass_attempt': 'Targets',
+    'passing_yards': 'Receiving_Yards',
+    'yards_after_catch': 'YAC',
+    'air_yards': 'Air_Yards',
+    'touchdown': 'TDs',
+    'epa': 'Total_EPA'
+}, inplace=True)
+
+receiver_stats['Catch_Rate'] = receiver_stats['Receptions'] / receiver_stats['Targets']
+receiver_stats['Yards_per_Target'] = receiver_stats['Receiving_Yards'] / receiver_stats['Targets']
+receiver_stats['YAC_per_Catch'] = receiver_stats['YAC'] / receiver_stats['Receptions']
+receiver_stats['EPA_per_Target'] = receiver_stats['Total_EPA'] / receiver_stats['Targets']
+
+# Filter for players with at least 50 targets
+receiver_stats = receiver_stats[receiver_stats['Targets'] >= 50]
+
+st.set_page_config(page_title="NFL WR Clustering Dashboard", layout="wide")
+st.title("📊 2024 NFL Wide Receiver Archetype Clusters")
+
+# Load WR stats from existing variable or file
+if "receiver_stats" in st.session_state:
+    df = st.session_state["receiver_stats"]
+else:
+    uploaded_file = st.file_uploader("play_by_play_2024.csv", type=["csv"])
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.session_state["receiver_stats"] = df
+    else:
+        st.info("receiver_stats")
+        st.stop()
+
+# Features for clustering
+features = [
+    "Targets", 
+    "Receptions", 
+    "Receiving_Yards", 
+    "TDs", 
+    "EPA_per_Target", 
+    "Air_Yards", 
+    "YAC_per_Catch"
+]
+
+# Drop NA rows
+df_clean = receiver_stats.dropna(subset=features + ["Receiver"])
+X = df_clean[features]
+
+# Scale features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Sidebar options
+n_clusters = st.sidebar.slider("Select number of clusters", min_value=2, max_value=6, value=4)
+
+# KMeans
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+df_clean["Cluster"] = kmeans.fit_predict(X_scaled)
+
+# PCA
+pca = PCA(n_components=2)
+coords = pca.fit_transform(X_scaled)
+df_clean["PCA1"] = coords[:, 0]
+df_clean["PCA2"] = coords[:, 1]
+
+# Color palette
+palette = sns.color_palette("Set2", n_colors=n_clusters)
+
+# Plot
+fig, ax = plt.subplots(figsize=(12, 8))
+sns.scatterplot(
+    data=df_clean,
+    x="PCA1",
+    y="PCA2",
+    hue="Cluster",
+    palette=palette,
+    s=100,
+    ax=ax,
+    legend="full"
+)
+
+for _, row in df_clean.iterrows():
+    ax.text(row["PCA1"], row["PCA2"], row["Receiver"], fontsize=8, alpha=0.75)
+
+ax.set_title("WR Clusters based on Role & Efficiency")
+ax.set_xlabel("PCA 1")
+ax.set_ylabel("PCA 2")
+ax.grid(True)
+
+st.pyplot(fig)
+
+# Show data
+with st.expander("🔍 View clustered data"):
+    st.dataframe(df_clean.sort_values("Cluster"))
+
+
+# In[ ]:
+
+
+
+
